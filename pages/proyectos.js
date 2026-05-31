@@ -4,6 +4,7 @@ const ProyectosPage = {
   _proveedores: [],
   _proyectoEnEdicion: null,
   _formDraft: null,
+  _instalacionesDetalle: [],
 
   async render() {
     UI.setPage(`
@@ -444,6 +445,8 @@ const ProyectosPage = {
         .order('fecha', { ascending: true }),
     ]);
 
+    this._instalacionesDetalle = instalaciones || [];
+
     const proveedoresConCosto = proyecto.proyecto_proveedores?.map(pp => ({
       ...pp.proveedores,
       costo: pp.costo,
@@ -494,18 +497,19 @@ const ProyectosPage = {
       : `<p class="text-muted">Sin visitas registradas</p>`;
 
     // Instalaciones
-    const badgeInst = est => ({ 'Confirmada': 'badge-success', 'Pendiente a confirmar': 'badge-warning' })[est] || 'badge-muted';
-
-    const instalacionesHtml = instalaciones?.length
-      ? `<div class="instalaciones-list">${instalaciones.map(inst => {
+    const instalacionesHtml = this._instalacionesDetalle.length
+      ? `<div class="instalaciones-list">${this._instalacionesDetalle.map(inst => {
           const instProvs = inst.instalacion_proveedores?.map(ip => ip.proveedores).filter(Boolean) || [];
           return `
             <div class="instalacion-item">
               <div class="instalacion-header">
                 <span class="visita-fecha">${this.formatFecha(inst.fecha)}</span>
                 ${inst.hora ? `<span class="text-muted" style="font-size:13px">🕐 ${inst.hora.slice(0,5)}</span>` : ''}
-                <span class="badge ${badgeInst(inst.estado)}">${inst.estado}</span>
-                <button class="visita-delete" style="margin-left:auto" onclick="ProyectosPage.eliminarInstalacion('${inst.id}','${id}')">×</button>
+                <span class="badge ${this.badgeInstalacion(inst.estado)}">${inst.estado}</span>
+                <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+                  <button class="visita-delete" title="Editar" onclick="ProyectosPage.editarInstalacion('${inst.id}','${id}')">✏️</button>
+                  <button class="visita-delete" onclick="ProyectosPage.eliminarInstalacion('${inst.id}','${id}')">×</button>
+                </div>
               </div>
               ${instProvs.length ? `
                 <div class="instalacion-proveedores">
@@ -577,7 +581,7 @@ const ProyectosPage = {
 
       <div class="detalle-section" style="margin-bottom:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <h4>Instalaciones (${instalaciones?.length || 0})</h4>
+          <h4>Instalaciones (${this._instalacionesDetalle.length})</h4>
           <button class="btn btn-outline btn-sm" onclick="ProyectosPage.abrirFormInstalacion('${id}')">+ Instalación</button>
         </div>
         ${instalacionesHtml}
@@ -629,28 +633,31 @@ const ProyectosPage = {
 
   // ── Instalaciones ────────────────────────────────────────────────────────────
 
-  abrirFormInstalacion(proyectoId) {
+  _buildFormInstalacion(proyectoId, instalacion = null) {
     const hoy = new Date().toISOString().split('T')[0];
     const proyecto = this.proyectos.find(p => p.id === proyectoId);
     const proveedores = proyecto?.proyecto_proveedores?.map(pp => pp.proveedores).filter(Boolean) || [];
+    const instProvIds = instalacion?.instalacion_proveedores?.map(ip => ip.proveedor_id) || [];
+    const estados = ['Pendiente a confirmar', 'Confirmada', 'Por completar', 'Terminada'];
+    const estadoActual = instalacion?.estado || 'Pendiente a confirmar';
+    const esEdicion = !!instalacion;
 
-    UI.openModal(`
-      <form onsubmit="ProyectosPage.guardarInstalacion(event, '${proyectoId}')">
+    return `
+      <form onsubmit="ProyectosPage.guardarInstalacion(event, '${proyectoId}', ${esEdicion ? `'${instalacion.id}'` : 'null'})">
         <div class="form-row">
           <div class="form-group">
             <label>Fecha *</label>
-            <input name="fecha" type="date" required value="${hoy}" />
+            <input name="fecha" type="date" required value="${instalacion?.fecha || hoy}" />
           </div>
           <div class="form-group">
             <label>Hora</label>
-            <input name="hora" type="time" />
+            <input name="hora" type="time" value="${instalacion?.hora?.slice(0,5) || ''}" />
           </div>
         </div>
         <div class="form-group">
           <label>Estado</label>
           <select name="estado">
-            <option>Pendiente a confirmar</option>
-            <option>Confirmada</option>
+            ${estados.map(e => `<option ${estadoActual === e ? 'selected' : ''}>${e}</option>`).join('')}
           </select>
         </div>
         ${proveedores.length ? `
@@ -659,46 +666,67 @@ const ProyectosPage = {
             <div class="checkboxes-list">
               ${proveedores.map(pv => `
                 <label class="checkbox-item">
-                  <input type="checkbox" name="inst_proveedor" value="${pv.id}" />
+                  <input type="checkbox" name="inst_proveedor" value="${pv.id}" ${instProvIds.includes(pv.id) ? 'checked' : ''} />
                   <span>${pv.nombre}${pv.servicio ? ` · ${pv.servicio}` : ''}</span>
                 </label>`).join('')}
             </div>
           </div>` : ''}
         <div class="form-group">
           <label>Notas</label>
-          <textarea name="notas" placeholder="Observaciones de la instalación..."></textarea>
+          <textarea name="notas" placeholder="Observaciones de la instalación...">${instalacion?.notas || ''}</textarea>
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-outline"
             onclick="ProyectosPage.verDetalle('${proyectoId}')">Volver</button>
-          <button type="submit" class="btn btn-primary">Registrar instalación</button>
+          <button type="submit" class="btn btn-primary">${esEdicion ? 'Guardar cambios' : 'Registrar instalación'}</button>
         </div>
-      </form>
-    `, 'Nueva Instalación');
+      </form>`;
   },
 
-  async guardarInstalacion(e, proyectoId) {
+  abrirFormInstalacion(proyectoId) {
+    UI.openModal(this._buildFormInstalacion(proyectoId), 'Nueva Instalación');
+  },
+
+  editarInstalacion(instalacionId, proyectoId) {
+    const instalacion = this._instalacionesDetalle.find(i => i.id === instalacionId);
+    if (!instalacion) return;
+    UI.openModal(this._buildFormInstalacion(proyectoId, instalacion), 'Editar Instalación');
+  },
+
+  async guardarInstalacion(e, proyectoId, instalacionId = null) {
     e.preventDefault();
     const form = e.target;
 
-    const { data: instalacion, error } = await db.from('instalaciones').insert({
+    const payload = {
       proyecto_id: proyectoId,
       fecha:       form.fecha.value,
       hora:        form.hora.value || null,
       estado:      form.estado.value,
       notas:       form.notas.value.trim() || null,
-    }).select().single();
+    };
 
-    if (error) { UI.toast('Error al registrar instalación', 'error'); return; }
+    let instalId = instalacionId;
+    let error;
+
+    if (instalacionId) {
+      ({ error } = await db.from('instalaciones').update(payload).eq('id', instalacionId));
+    } else {
+      const { data, error: err } = await db.from('instalaciones').insert(payload).select().single();
+      error = err;
+      if (data) instalId = data.id;
+    }
+
+    if (error) { UI.toast('Error al guardar instalación', 'error'); return; }
 
     const provIds = Array.from(form.querySelectorAll('input[name="inst_proveedor"]:checked')).map(cb => cb.value);
+    await db.from('instalacion_proveedores').delete().eq('instalacion_id', instalId);
     if (provIds.length) {
       await db.from('instalacion_proveedores').insert(
-        provIds.map(pid => ({ instalacion_id: instalacion.id, proveedor_id: pid }))
+        provIds.map(pid => ({ instalacion_id: instalId, proveedor_id: pid }))
       );
     }
 
-    UI.toast('Instalación registrada', 'success');
+    UI.toast(instalacionId ? 'Instalación actualizada' : 'Instalación registrada', 'success');
     await this.verDetalle(proyectoId);
   },
 
@@ -845,6 +873,15 @@ const ProyectosPage = {
       'Cerrado ganado':       'badge-success',
       'Cerrado perdido':      'badge-danger',
     }[etapa] || 'badge-muted';
+  },
+
+  badgeInstalacion(estado) {
+    return {
+      'Pendiente a confirmar': 'badge-warning',
+      'Confirmada':            'badge-info',
+      'Por completar':         'badge-gold',
+      'Terminada':             'badge-success',
+    }[estado] || 'badge-muted';
   },
 
   formatFecha(fecha) {
