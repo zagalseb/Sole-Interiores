@@ -23,7 +23,8 @@ const ClientesPage = {
           <option value="Referido">Referido</option>
           <option value="Redes sociales">Redes sociales</option>
           <option value="Web">Web</option>
-          <option value="Llamada fría">Llamada fría</option>
+          <option value="Whatsapp">Whatsapp</option>
+          <option value="Expo">Expo</option>
           <option value="Otro">Otro</option>
         </select>
       </div>
@@ -81,11 +82,11 @@ const ClientesPage = {
     }
 
     grid.innerHTML = lista.map(c => `
-      <div class="client-card" onclick="ClientesPage.verDetalle('${c.id}')">
+      <div class="client-card${c._pending ? ' client-card-pending' : ''}" onclick="ClientesPage.verDetalle('${c.id}')">
         <div class="client-card-header">
           <div class="client-avatar">${c.nombre.charAt(0).toUpperCase()}</div>
           <div class="client-info">
-            <h3 class="client-name">${c.nombre}</h3>
+            <h3 class="client-name">${c.nombre}${c._pending ? '<span class="pending-badge">Pendiente sync</span>' : ''}</h3>
             <p class="client-empresa">${c.empresa || '—'}</p>
           </div>
           <span class="badge ${this.badgeEstado(c.estado)}">${c.estado}</span>
@@ -141,7 +142,7 @@ const ClientesPage = {
             <label>Origen</label>
             <select name="origen">
               <option value="">— Seleccionar —</option>
-              ${['Referido','Redes sociales','Web','Llamada fría','Otro'].map(o =>
+              ${['Referido','Redes sociales','Web','Whatsapp','Expo','Otro'].map(o =>
                 `<option ${cliente?.origen === o ? 'selected' : ''}>${o}</option>`
               ).join('')}
             </select>
@@ -182,21 +183,39 @@ const ClientesPage = {
       notas:     form.notas.value.trim() || null,
     };
 
-    let error;
     if (id) {
-      ({ error } = await db.from('clientes').update(payload).eq('id', id));
+      if (!OfflineSync.isOnline()) {
+        UI.toast('Necesitas conexión para editar o eliminar', 'error');
+        return;
+      }
+      const { error } = await db.from('clientes').update(payload).eq('id', id);
+      if (error) { UI.toast('Error al guardar', 'error'); return; }
+      UI.closeModal();
+      UI.toast('Cliente actualizado', 'success');
+      await this.cargarClientes();
     } else {
-      ({ error } = await db.from('clientes').insert(payload));
+      if (!OfflineSync.isOnline()) {
+        OfflineSync.enqueue('clientes', 'insert', payload);
+        const tempCliente = { ...payload, id: 'temp_' + Date.now(), _pending: true };
+        this.clientes = [tempCliente, ...this.clientes];
+        UI.closeModal();
+        UI.toast('Sin conexión — cliente guardado localmente', 'info');
+        this.renderGrid(this.clientes);
+        return;
+      }
+      const { error } = await db.from('clientes').insert(payload);
+      if (error) { UI.toast('Error al guardar', 'error'); return; }
+      UI.closeModal();
+      UI.toast('Cliente creado', 'success');
+      await this.cargarClientes();
     }
-
-    if (error) { UI.toast('Error al guardar', 'error'); return; }
-
-    UI.closeModal();
-    UI.toast(id ? 'Cliente actualizado' : 'Cliente creado', 'success');
-    await this.cargarClientes();
   },
 
   async verDetalle(id) {
+    if (String(id).startsWith('temp_')) {
+      UI.toast('Este cliente se sincronizará cuando haya conexión', 'info');
+      return;
+    }
     const cliente = this.clientes.find(c => c.id === id);
     if (!cliente) return;
 
@@ -249,6 +268,10 @@ const ClientesPage = {
   },
 
   async eliminar(id) {
+    if (!OfflineSync.isOnline()) {
+      UI.toast('Necesitas conexión para editar o eliminar', 'error');
+      return;
+    }
     if (!confirm('¿Eliminar este cliente? Sus proyectos quedarán sin cliente asignado.')) return;
     const { error } = await db.from('clientes').delete().eq('id', id);
     if (error) { UI.toast('Error al eliminar', 'error'); return; }

@@ -20,7 +20,7 @@ const ProyectosPage = {
           class="filter-input" oninput="ProyectosPage.filtrar()" />
         <select id="filter-etapa" class="filter-select" onchange="ProyectosPage.filtrar()">
           <option value="">Todas las etapas</option>
-          ${['Cotización enviada','Proyecto activo','En pausa','Cerrado ganado','Cerrado perdido']
+          ${['Cotización enviada','Proyecto activo','Produciéndose','Pendiente a instalar','En pausa','Cerrado ganado','Cerrado perdido']
             .map(e => `<option value="${e}">${e}</option>`).join('')}
         </select>
       </div>
@@ -38,8 +38,8 @@ const ProyectosPage = {
       .from('proyectos')
       .select(`
         *,
-        clientes(id, nombre, empresa),
-        proyecto_proveedores(proveedor_id, proveedores(id, nombre, servicio))
+        clientes(id, nombre, empresa, zona),
+        proyecto_proveedores(proveedor_id, costo, proveedores(id, nombre, servicio))
       `)
       .order('created_at', { ascending: false });
 
@@ -92,6 +92,7 @@ const ProyectosPage = {
           </div>
           <div class="proyecto-meta">
             ${p.clientes ? `<span>👤 ${p.clientes.nombre}${p.clientes.empresa ? ` · ${p.clientes.empresa}` : ''}</span>` : ''}
+            ${p.clientes?.zona ? `<span>📍 ${p.clientes.zona}</span>` : ''}
             ${p.presupuesto_estimado != null ? `<span>💰 ${this.formatMonto(p.presupuesto_estimado, moneda)}</span>` : ''}
             ${p.fecha_deadline ? `<span class="${vencido ? 'deadline-vencido' : ''}">${vencido ? '⚠️ ' : '📅 '}${this.formatFecha(p.fecha_deadline)}</span>` : ''}
           </div>
@@ -123,12 +124,13 @@ const ProyectosPage = {
     const d = draft || {};
     const v = campo => d[campo] !== undefined ? d[campo] : (proyecto?.[campo] ?? '');
 
-    const clienteId = d.cliente_id !== undefined ? d.cliente_id : (proyecto?.cliente_id || '');
-    const etapa     = d.etapa  || proyecto?.etapa  || 'Cotización enviada';
-    const moneda    = d.moneda || proyecto?.moneda || 'MXN';
-    const provIds   = d.proveedores_ids || (proyecto?.proyecto_proveedores?.map(pp => pp.proveedor_id) || []);
+    const clienteId  = d.cliente_id !== undefined ? d.cliente_id : (proyecto?.cliente_id || '');
+    const etapa      = d.etapa  || proyecto?.etapa  || 'Cotización enviada';
+    const moneda     = d.moneda || proyecto?.moneda || 'MXN';
+    const provIds    = d.proveedores_ids || (proyecto?.proyecto_proveedores?.map(pp => pp.proveedor_id) || []);
+    const costosDraft = d.costos_proveedores || {};
 
-    const etapas  = ['Cotización enviada','Proyecto activo','En pausa','Cerrado ganado','Cerrado perdido'];
+    const etapas  = ['Cotización enviada','Proyecto activo','Produciéndose','Pendiente a instalar','En pausa','Cerrado ganado','Cerrado perdido'];
     const monedas = ['MXN','USD','EUR'];
 
     UI.openModal(`
@@ -159,11 +161,18 @@ const ProyectosPage = {
           </div>
           <div class="checkboxes-list">
             ${this._proveedores.length
-              ? this._proveedores.map(pv => `
-                  <label class="checkbox-item">
-                    <input type="checkbox" name="proveedor" value="${pv.id}" ${provIds.includes(pv.id) ? 'checked' : ''} />
-                    <span>${pv.nombre}${pv.servicio ? ` · ${pv.servicio}` : ''}</span>
-                  </label>`).join('')
+              ? this._proveedores.map(pv => {
+                  const costoExistente = costosDraft[pv.id] !== undefined
+                    ? costosDraft[pv.id]
+                    : (proyecto?.proyecto_proveedores?.find(pp => pp.proveedor_id === pv.id)?.costo ?? '');
+                  return `
+                    <label class="checkbox-item">
+                      <input type="checkbox" name="proveedor" value="${pv.id}" ${provIds.includes(pv.id) ? 'checked' : ''} />
+                      <span>${pv.nombre}${pv.servicio ? ` · ${pv.servicio}` : ''}</span>
+                      <input type="number" name="costo_prov_${pv.id}" value="${costoExistente}"
+                        placeholder="Costo" class="input-costo-prov" step="0.01" min="0" />
+                    </label>`;
+                }).join('')
               : '<p class="text-muted" style="font-size:13px;padding:8px">Sin proveedores registrados</p>'
             }
           </div>
@@ -203,19 +212,11 @@ const ProyectosPage = {
             <input name="anticipo" type="number" step="0.01" min="0" value="${v('anticipo')}" placeholder="0.00" />
           </div>
           <div class="form-group">
-            <label>Costo de proveedores</label>
-            <input name="costo_proveedores" type="number" step="0.01" min="0" value="${v('costo_proveedores')}" placeholder="0.00" />
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
             <label>Moneda</label>
             <select name="moneda">
               ${monedas.map(m => `<option ${moneda === m ? 'selected' : ''}>${m}</option>`).join('')}
             </select>
           </div>
-          <div class="form-group"></div>
         </div>
 
         <div class="form-row">
@@ -251,11 +252,15 @@ const ProyectosPage = {
       presupuesto_estimado: form.presupuesto_estimado?.value || '',
       presupuesto_real:     form.presupuesto_real?.value     || '',
       anticipo:             form.anticipo?.value             || '',
-      costo_proveedores:    form.costo_proveedores?.value    || '',
       moneda:               form.moneda?.value               || 'MXN',
       fecha_inicio:         form.fecha_inicio?.value         || '',
       fecha_deadline:       form.fecha_deadline?.value       || '',
       proveedores_ids:      Array.from(document.querySelectorAll('input[name="proveedor"]:checked')).map(cb => cb.value),
+      costos_proveedores:   Object.fromEntries(
+        Array.from(document.querySelectorAll('input[name^="costo_prov_"]'))
+          .map(inp => [inp.name.replace('costo_prov_', ''), inp.value])
+          .filter(([, v]) => v !== '')
+      ),
     };
   },
 
@@ -369,6 +374,14 @@ const ProyectosPage = {
   async guardar(e, id = null) {
     e.preventDefault();
     const form = e.target;
+
+    const provIds = Array.from(form.querySelectorAll('input[name="proveedor"]:checked')).map(cb => cb.value);
+
+    const costoTotal = provIds.reduce((sum, pid) => {
+      const val = form.querySelector(`input[name="costo_prov_${pid}"]`)?.value;
+      return sum + (val ? Number(val) : 0);
+    }, 0);
+
     const payload = {
       nombre:               form.nombre.value.trim(),
       cliente_id:           form.cliente_id.value           || null,
@@ -378,13 +391,11 @@ const ProyectosPage = {
       presupuesto_estimado: form.presupuesto_estimado.value ? Number(form.presupuesto_estimado.value) : null,
       presupuesto_real:     form.presupuesto_real.value     ? Number(form.presupuesto_real.value)     : null,
       anticipo:             form.anticipo.value             ? Number(form.anticipo.value)             : null,
-      costo_proveedores:    form.costo_proveedores.value    ? Number(form.costo_proveedores.value)    : null,
+      costo_proveedores:    costoTotal || null,
       moneda:               form.moneda.value,
       fecha_inicio:         form.fecha_inicio.value         || null,
       fecha_deadline:       form.fecha_deadline.value       || null,
     };
-
-    const provIds = Array.from(form.querySelectorAll('input[name="proveedor"]:checked')).map(cb => cb.value);
 
     let proyectoId = id;
     let error;
@@ -402,7 +413,13 @@ const ProyectosPage = {
     await db.from('proyecto_proveedores').delete().eq('proyecto_id', proyectoId);
     if (provIds.length) {
       await db.from('proyecto_proveedores').insert(
-        provIds.map(pid => ({ proyecto_id: proyectoId, proveedor_id: pid }))
+        provIds.map(pid => ({
+          proyecto_id:  proyectoId,
+          proveedor_id: pid,
+          costo: form.querySelector(`input[name="costo_prov_${pid}"]`)?.value
+            ? Number(form.querySelector(`input[name="costo_prov_${pid}"]`).value)
+            : null,
+        }))
       );
     }
 
@@ -417,43 +434,54 @@ const ProyectosPage = {
     const proyecto = this.proyectos.find(p => p.id === id);
     if (!proyecto) return;
 
-    const [{ data: tareas }, { data: notas }, { data: visitas }] = await Promise.all([
+    const [{ data: tareas }, { data: notas }, { data: visitas }, { data: instalaciones }] = await Promise.all([
       db.from('tareas').select('*').eq('proyecto_id', id).order('created_at', { ascending: true }),
       db.from('notas').select('*').eq('proyecto_id', id).order('created_at', { ascending: false }),
       db.from('visitas').select('*').eq('proyecto_id', id).order('fecha', { ascending: false }),
+      db.from('instalaciones')
+        .select('*, instalacion_proveedores(proveedor_id, proveedores(id, nombre))')
+        .eq('proyecto_id', id)
+        .order('fecha', { ascending: true }),
     ]);
 
-    const proveedores = proyecto.proyecto_proveedores?.map(pp => pp.proveedores).filter(Boolean) || [];
+    const proveedoresConCosto = proyecto.proyecto_proveedores?.map(pp => ({
+      ...pp.proveedores,
+      costo: pp.costo,
+    })).filter(Boolean) || [];
+
     const moneda  = proyecto.moneda || 'MXN';
     const hoy     = new Date().toISOString().split('T')[0];
     const vencido = proyecto.fecha_deadline && proyecto.fecha_deadline < hoy;
 
-    const etapas = ['Cotización enviada','Proyecto activo','En pausa','Cerrado ganado','Cerrado perdido'];
+    const etapas = ['Cotización enviada','Proyecto activo','Produciéndose','Pendiente a instalar','En pausa','Cerrado ganado','Cerrado perdido'];
 
     // Financiero
     const presEst  = proyecto.presupuesto_estimado;
     const presReal = proyecto.presupuesto_real;
     const anticipo = proyecto.anticipo;
-    const costosPv = proyecto.costo_proveedores;
 
-    const diff        = presEst != null && presReal != null ? presReal - presEst : null;
-    const saldo       = presReal != null && anticipo  != null ? presReal - anticipo : null;
-    const ganancia    = presReal != null && costosPv  != null && presReal !== 0
-      ? ((presReal - costosPv) / presReal) * 100
+    const costosPvSum = proveedoresConCosto.some(pv => pv.costo != null)
+      ? proveedoresConCosto.reduce((sum, pv) => sum + (pv.costo || 0), 0)
       : null;
+
+    const diff     = presEst != null && presReal != null ? presReal - presEst : null;
+    const saldo    = presReal != null && anticipo  != null ? presReal - anticipo : null;
+    const ganancia = presReal != null && costosPvSum != null && presReal !== 0
+      ? ((presReal - costosPvSum) / presReal) * 100
+      : null;
+
+    const tieneFinanciero = presEst != null || presReal != null || anticipo != null || costosPvSum != null;
 
     const financieroHtml = `
       <div class="financiero-grid">
-        ${presEst  != null ? `<div class="financiero-item"><label>Presupuesto estimado</label><span>${this.formatMonto(presEst, moneda)}</span></div>` : ''}
-        ${presReal != null ? `<div class="financiero-item"><label>Presupuesto real</label><span>${this.formatMonto(presReal, moneda)}</span></div>` : ''}
-        ${anticipo != null ? `<div class="financiero-item"><label>Anticipo recibido</label><span>${this.formatMonto(anticipo, moneda)}</span></div>` : ''}
-        ${saldo    != null ? `<div class="financiero-item"><label>Saldo pendiente</label><span style="color:${saldo > 0 ? 'var(--danger)' : 'var(--success)'}">${this.formatMonto(saldo, moneda)}</span></div>` : ''}
-        ${costosPv != null ? `<div class="financiero-item"><label>Costo de proveedores</label><span>${this.formatMonto(costosPv, moneda)}</span></div>` : ''}
-        ${ganancia != null ? `<div class="financiero-item"><label>% de ganancia</label><span style="color:${ganancia >= 0 ? 'var(--success)' : 'var(--danger)'}">${ganancia.toFixed(1)}%</span></div>` : ''}
-        ${diff     != null ? `<div class="financiero-item full"><label>Diferencia estimado vs real</label><span style="color:${diff > 0 ? 'var(--danger)' : 'var(--success)'}">${diff > 0 ? '+' : ''}${this.formatMonto(diff, moneda)}</span></div>` : ''}
+        ${presEst       != null ? `<div class="financiero-item"><label>Presupuesto estimado</label><span>${this.formatMonto(presEst, moneda)}</span></div>` : ''}
+        ${presReal      != null ? `<div class="financiero-item"><label>Presupuesto real</label><span>${this.formatMonto(presReal, moneda)}</span></div>` : ''}
+        ${anticipo      != null ? `<div class="financiero-item"><label>Anticipo recibido</label><span>${this.formatMonto(anticipo, moneda)}</span></div>` : ''}
+        ${saldo         != null ? `<div class="financiero-item"><label>Saldo pendiente</label><span style="color:${saldo > 0 ? 'var(--danger)' : 'var(--success)'}">${this.formatMonto(saldo, moneda)}</span></div>` : ''}
+        ${costosPvSum   != null ? `<div class="financiero-item"><label>Costo de proveedores</label><span>${this.formatMonto(costosPvSum, moneda)}</span></div>` : ''}
+        ${ganancia      != null ? `<div class="financiero-item"><label>% de ganancia</label><span style="color:${ganancia >= 0 ? 'var(--success)' : 'var(--danger)'}">${ganancia.toFixed(1)}%</span></div>` : ''}
+        ${diff          != null ? `<div class="financiero-item full"><label>Diferencia estimado vs real</label><span style="color:${diff > 0 ? 'var(--danger)' : 'var(--success)'}">${diff > 0 ? '+' : ''}${this.formatMonto(diff, moneda)}</span></div>` : ''}
       </div>`;
-
-    const tieneFinanciero = presEst != null || presReal != null || anticipo != null || costosPv != null;
 
     // Visitas
     const visitasHtml = visitas?.length
@@ -464,6 +492,28 @@ const ProyectosPage = {
             <button class="visita-delete" onclick="ProyectosPage.eliminarVisita('${v.id}','${id}')">×</button>
           </div>`).join('')}</div>`
       : `<p class="text-muted">Sin visitas registradas</p>`;
+
+    // Instalaciones
+    const badgeInst = est => ({ 'Confirmada': 'badge-success', 'Pendiente a confirmar': 'badge-warning' })[est] || 'badge-muted';
+
+    const instalacionesHtml = instalaciones?.length
+      ? `<div class="instalaciones-list">${instalaciones.map(inst => {
+          const instProvs = inst.instalacion_proveedores?.map(ip => ip.proveedores).filter(Boolean) || [];
+          return `
+            <div class="instalacion-item">
+              <div class="instalacion-header">
+                <span class="visita-fecha">${this.formatFecha(inst.fecha)}</span>
+                ${inst.hora ? `<span class="text-muted" style="font-size:13px">🕐 ${inst.hora.slice(0,5)}</span>` : ''}
+                <span class="badge ${badgeInst(inst.estado)}">${inst.estado}</span>
+                <button class="visita-delete" style="margin-left:auto" onclick="ProyectosPage.eliminarInstalacion('${inst.id}','${id}')">×</button>
+              </div>
+              ${instProvs.length ? `
+                <div class="instalacion-proveedores">
+                  ${instProvs.map(pv => `<span class="proveedor-chip" style="font-size:11px;padding:2px 8px">${pv.nombre}</span>`).join('')}
+                </div>` : ''}
+              ${inst.notas ? `<p class="instalacion-notas">${inst.notas}</p>` : ''}
+            </div>`}).join('')}</div>`
+      : `<p class="text-muted">Sin instalaciones</p>`;
 
     // Tareas
     const tareasHtml = tareas?.length
@@ -502,6 +552,7 @@ const ProyectosPage = {
 
       <div class="detalle-grid" style="margin-top:16px">
         ${proyecto.clientes ? `<div class="detalle-item"><label>Cliente</label><span>${proyecto.clientes.nombre}${proyecto.clientes.empresa ? ` · ${proyecto.clientes.empresa}` : ''}</span></div>` : ''}
+        ${proyecto.clientes?.zona ? `<div class="detalle-item"><label>Zona</label><span>${proyecto.clientes.zona}</span></div>` : ''}
         ${proyecto.fecha_inicio   ? `<div class="detalle-item"><label>Inicio</label><span>${this.formatFecha(proyecto.fecha_inicio)}</span></div>` : ''}
         ${proyecto.fecha_deadline ? `<div class="detalle-item"><label>Deadline</label><span class="${vencido ? 'deadline-vencido' : ''}">${vencido ? '⚠️ ' : ''}${this.formatFecha(proyecto.fecha_deadline)}</span></div>` : ''}
       </div>
@@ -512,16 +563,25 @@ const ProyectosPage = {
           ${financieroHtml}
         </div>` : ''}
 
-      ${proveedores.length ? `
+      ${proveedoresConCosto.length ? `
         <div style="margin-bottom:16px">
           <p style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:6px">Proveedores</p>
           <div class="proyecto-proveedores">
-            ${proveedores.map(pv => `<span class="proveedor-chip">${pv.nombre}${pv.servicio ? ` · ${pv.servicio}` : ''}</span>`).join('')}
+            ${proveedoresConCosto.map(pv => `
+              <span class="proveedor-chip">${pv.nombre}${pv.servicio ? ` · ${pv.servicio}` : ''}${pv.costo != null ? ` — ${this.formatMonto(pv.costo, moneda)}` : ''}</span>`).join('')}
           </div>
         </div>` : ''}
 
       ${proyecto.descripcion ? `<div class="detalle-notas" style="margin-bottom:12px"><label>Descripción</label><p>${proyecto.descripcion}</p></div>` : ''}
       ${proyecto.detalles    ? `<div class="detalle-notas" style="margin-bottom:12px"><label>Detalles</label><p>${proyecto.detalles}</p></div>`       : ''}
+
+      <div class="detalle-section" style="margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h4>Instalaciones (${instalaciones?.length || 0})</h4>
+          <button class="btn btn-outline btn-sm" onclick="ProyectosPage.abrirFormInstalacion('${id}')">+ Instalación</button>
+        </div>
+        ${instalacionesHtml}
+      </div>
 
       <div class="detalle-section" style="margin-bottom:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -565,6 +625,89 @@ const ProyectosPage = {
     if (badge) { badge.className = `badge ${this.badgeEtapa(etapa)}`; badge.textContent = etapa; }
     UI.toast('Etapa actualizada', 'success');
     this.renderLista(this.proyectos);
+  },
+
+  // ── Instalaciones ────────────────────────────────────────────────────────────
+
+  abrirFormInstalacion(proyectoId) {
+    const hoy = new Date().toISOString().split('T')[0];
+    const proyecto = this.proyectos.find(p => p.id === proyectoId);
+    const proveedores = proyecto?.proyecto_proveedores?.map(pp => pp.proveedores).filter(Boolean) || [];
+
+    UI.openModal(`
+      <form onsubmit="ProyectosPage.guardarInstalacion(event, '${proyectoId}')">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Fecha *</label>
+            <input name="fecha" type="date" required value="${hoy}" />
+          </div>
+          <div class="form-group">
+            <label>Hora</label>
+            <input name="hora" type="time" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Estado</label>
+          <select name="estado">
+            <option>Pendiente a confirmar</option>
+            <option>Confirmada</option>
+          </select>
+        </div>
+        ${proveedores.length ? `
+          <div class="form-group">
+            <label>Proveedores asignados</label>
+            <div class="checkboxes-list">
+              ${proveedores.map(pv => `
+                <label class="checkbox-item">
+                  <input type="checkbox" name="inst_proveedor" value="${pv.id}" />
+                  <span>${pv.nombre}${pv.servicio ? ` · ${pv.servicio}` : ''}</span>
+                </label>`).join('')}
+            </div>
+          </div>` : ''}
+        <div class="form-group">
+          <label>Notas</label>
+          <textarea name="notas" placeholder="Observaciones de la instalación..."></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-outline"
+            onclick="ProyectosPage.verDetalle('${proyectoId}')">Volver</button>
+          <button type="submit" class="btn btn-primary">Registrar instalación</button>
+        </div>
+      </form>
+    `, 'Nueva Instalación');
+  },
+
+  async guardarInstalacion(e, proyectoId) {
+    e.preventDefault();
+    const form = e.target;
+
+    const { data: instalacion, error } = await db.from('instalaciones').insert({
+      proyecto_id: proyectoId,
+      fecha:       form.fecha.value,
+      hora:        form.hora.value || null,
+      estado:      form.estado.value,
+      notas:       form.notas.value.trim() || null,
+    }).select().single();
+
+    if (error) { UI.toast('Error al registrar instalación', 'error'); return; }
+
+    const provIds = Array.from(form.querySelectorAll('input[name="inst_proveedor"]:checked')).map(cb => cb.value);
+    if (provIds.length) {
+      await db.from('instalacion_proveedores').insert(
+        provIds.map(pid => ({ instalacion_id: instalacion.id, proveedor_id: pid }))
+      );
+    }
+
+    UI.toast('Instalación registrada', 'success');
+    await this.verDetalle(proyectoId);
+  },
+
+  async eliminarInstalacion(instalacionId, proyectoId) {
+    if (!confirm('¿Eliminar esta instalación?')) return;
+    await db.from('instalacion_proveedores').delete().eq('instalacion_id', instalacionId);
+    const { error } = await db.from('instalaciones').delete().eq('id', instalacionId);
+    if (error) { UI.toast('Error al eliminar', 'error'); return; }
+    await this.verDetalle(proyectoId);
   },
 
   // ── Visitas ──────────────────────────────────────────────────────────────────
@@ -675,11 +818,12 @@ const ProyectosPage = {
   // ── Eliminar proyecto ────────────────────────────────────────────────────────
 
   async eliminar(id) {
-    if (!confirm('¿Eliminar este proyecto? Se eliminarán también sus tareas, notas y visitas.')) return;
+    if (!confirm('¿Eliminar este proyecto? Se eliminarán también sus tareas, notas, visitas e instalaciones.')) return;
     await Promise.all([
       db.from('tareas').delete().eq('proyecto_id', id),
       db.from('notas').delete().eq('proyecto_id', id),
       db.from('visitas').delete().eq('proyecto_id', id),
+      db.from('instalaciones').delete().eq('proyecto_id', id),
       db.from('proyecto_proveedores').delete().eq('proyecto_id', id),
     ]);
     const { error } = await db.from('proyectos').delete().eq('id', id);
@@ -693,11 +837,13 @@ const ProyectosPage = {
 
   badgeEtapa(etapa) {
     return {
-      'Cotización enviada': 'badge-gold',
-      'Proyecto activo':    'badge-success',
-      'En pausa':           'badge-warning',
-      'Cerrado ganado':     'badge-success',
-      'Cerrado perdido':    'badge-danger',
+      'Cotización enviada':   'badge-gold',
+      'Proyecto activo':      'badge-success',
+      'Produciéndose':        'badge-info',
+      'Pendiente a instalar': 'badge-warning',
+      'En pausa':             'badge-muted',
+      'Cerrado ganado':       'badge-success',
+      'Cerrado perdido':      'badge-danger',
     }[etapa] || 'badge-muted';
   },
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sole-crm-v1';
+const CACHE_NAME = 'sole-crm-v2';
 const ASSETS = [
   '/Sole-Interiores/',
   '/Sole-Interiores/index.html',

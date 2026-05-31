@@ -1,6 +1,6 @@
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/Sole-Interiores/sw.js')
+    navigator.serviceWorker.register('./sw.js')
       .then(() => console.log('SW registrado'))
       .catch(err => console.warn('SW error:', err));
   });
@@ -28,7 +28,7 @@ const DashboardPage = {
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px" id="dash-bottom-grid">
         <div class="dashboard-section">
-          <h3>Tareas próximas</h3>
+          <h3>Tareas e instalaciones próximas</h3>
           <div id="dash-tareas"><div class="loading"><div class="spinner"></div></div></div>
         </div>
         <div class="dashboard-section">
@@ -51,12 +51,14 @@ const DashboardPage = {
   },
 
   async cargarDatos() {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy          = new Date().toISOString().split('T')[0];
+    const fechaEn7Dias = new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0];
 
     const [
       { data: clientes },
       { data: proyectos },
       { data: tareas },
+      { data: instalaciones },
     ] = await Promise.all([
       db.from('clientes').select('id, estado'),
       db.from('proyectos').select(`
@@ -67,11 +69,18 @@ const DashboardPage = {
         id, titulo, estado, fecha_limite,
         proyectos(id, nombre)
       `).neq('estado', 'Completada').order('fecha_limite', { ascending: true, nullsFirst: false }),
+      db.from('instalaciones').select(`
+        id, fecha, hora, estado,
+        proyectos(id, nombre)
+      `)
+        .gte('fecha', hoy)
+        .lte('fecha', fechaEn7Dias)
+        .order('fecha', { ascending: true }),
     ]);
 
     this.llenarStatCards(clientes || [], proyectos || [], tareas || [], hoy);
     this.llenarEtapas(proyectos || []);
-    this.llenarTareas(tareas || [], hoy);
+    this.llenarTareas(tareas || [], instalaciones || [], hoy);
     this.llenarProyectos(proyectos || []);
   },
 
@@ -111,11 +120,13 @@ const DashboardPage = {
 
   llenarEtapas(proyectos) {
     const etapas = [
-      { nombre: 'Cotización enviada', color: 'var(--gold)' },
-      { nombre: 'Proyecto activo',    color: 'var(--success)' },
-      { nombre: 'En pausa',           color: 'var(--warning)' },
-      { nombre: 'Cerrado ganado',     color: 'var(--success)' },
-      { nombre: 'Cerrado perdido',    color: 'var(--danger)' },
+      { nombre: 'Cotización enviada',   color: 'var(--gold)' },
+      { nombre: 'Proyecto activo',      color: 'var(--success)' },
+      { nombre: 'Produciéndose',        color: '#2980b9' },
+      { nombre: 'Pendiente a instalar', color: 'var(--warning)' },
+      { nombre: 'En pausa',             color: 'var(--text-muted)' },
+      { nombre: 'Cerrado ganado',       color: 'var(--success)' },
+      { nombre: 'Cerrado perdido',      color: 'var(--danger)' },
     ];
 
     const conteos = etapas.map(e => ({
@@ -136,34 +147,59 @@ const DashboardPage = {
       </div>`).join('');
   },
 
-  llenarTareas(tareas, hoy) {
-    const proximas = tareas
-      .filter(t => !t.fecha_limite || t.fecha_limite <= new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0])
-      .slice(0, 5);
+  llenarTareas(tareas, instalaciones, hoy) {
+    const fechaEn7Dias = new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0];
 
-    if (!proximas.length) {
+    const tareasItems = tareas
+      .filter(t => !t.fecha_limite || t.fecha_limite <= fechaEn7Dias)
+      .map(t => ({ _tipo: 'tarea', _fecha: t.fecha_limite || '', ...t }));
+
+    const instItems = instalaciones
+      .map(i => ({ _tipo: 'instalacion', _fecha: i.fecha || '', ...i }));
+
+    const items = [...tareasItems, ...instItems]
+      .sort((a, b) => a._fecha.localeCompare(b._fecha));
+
+    if (!items.length) {
       document.getElementById('dash-tareas').innerHTML = `<p class="text-muted">Sin tareas pendientes</p>`;
       return;
     }
 
     document.getElementById('dash-tareas').innerHTML = `
       <div class="dashboard-list">
-        ${proximas.map(t => {
-          const vencida  = t.fecha_limite && t.fecha_limite < hoy;
-          const fechaStr = t.fecha_limite ? ProyectosPage.formatFecha(t.fecha_limite) : '—';
-          const proyId   = t.proyectos?.id;
-          const proyNom  = t.proyectos?.nombre || '—';
-          return `
-            <div class="dashboard-list-item" onclick="Router.navigate('proyectos'); setTimeout(()=>ProyectosPage.verDetalle('${proyId}'),300)">
-              <div class="dashboard-item-left">
-                <span class="dashboard-item-title ${vencida ? 'deadline-vencido' : ''}">${vencida ? '⚠️ ' : ''}${t.titulo}</span>
-                <span class="dashboard-item-sub">📁 ${proyNom}</span>
-              </div>
-              <div class="dashboard-item-right">
-                <span class="text-muted" style="font-size:12px">${fechaStr}</span>
-                <span class="badge ${vencida ? 'badge-danger' : 'badge-gold'}">${vencida ? 'Vencida' : 'Pendiente'}</span>
-              </div>
-            </div>`;
+        ${items.map(item => {
+          if (item._tipo === 'tarea') {
+            const vencida  = item.fecha_limite && item.fecha_limite < hoy;
+            const fechaStr = item.fecha_limite ? ProyectosPage.formatFecha(item.fecha_limite) : '—';
+            const proyId   = item.proyectos?.id;
+            const proyNom  = item.proyectos?.nombre || '—';
+            return `
+              <div class="dashboard-list-item" onclick="Router.navigate('proyectos'); setTimeout(()=>ProyectosPage.verDetalle('${proyId}'),300)">
+                <div class="dashboard-item-left">
+                  <span class="dashboard-item-title ${vencida ? 'deadline-vencido' : ''}">${vencida ? '⚠️ ' : ''}${item.titulo}</span>
+                  <span class="dashboard-item-sub">📁 ${proyNom}</span>
+                </div>
+                <div class="dashboard-item-right">
+                  <span class="text-muted" style="font-size:12px">${fechaStr}</span>
+                  <span class="badge ${vencida ? 'badge-danger' : 'badge-gold'}">${vencida ? 'Vencida' : 'Pendiente'}</span>
+                </div>
+              </div>`;
+          } else {
+            const fechaStr = item.fecha ? ProyectosPage.formatFecha(item.fecha) : '—';
+            const proyId   = item.proyectos?.id;
+            const proyNom  = item.proyectos?.nombre || '—';
+            return `
+              <div class="dashboard-list-item" onclick="Router.navigate('proyectos'); setTimeout(()=>ProyectosPage.verDetalle('${proyId}'),300)">
+                <div class="dashboard-item-left">
+                  <span class="dashboard-item-title">🔧 Instalación — ${proyNom}</span>
+                  <span class="dashboard-item-sub">${item.hora ? `🕐 ${item.hora.slice(0,5)}` : 'Sin hora definida'}</span>
+                </div>
+                <div class="dashboard-item-right">
+                  <span class="text-muted" style="font-size:12px">${fechaStr}</span>
+                  <span class="badge badge-warning">Pendiente</span>
+                </div>
+              </div>`;
+          }
         }).join('')}
       </div>`;
   },
@@ -201,4 +237,5 @@ const DashboardPage = {
 
 document.addEventListener('DOMContentLoaded', () => {
   Router.init();
+  OfflineSync.init();
 });
