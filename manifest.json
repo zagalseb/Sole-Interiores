@@ -2,20 +2,21 @@
   "name": "Solé CRM",
   "short_name": "Solé",
   "description": "Gestión de clientes, proveedores y proyectos",
-  "start_url": "/",
+  "start_url": "/Sole-Interiores/",
+  "scope": "/Sole-Interiores/",
   "display": "standalone",
   "background_color": "#0f0f0f",
   "theme_color": "#b28e0e",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "icons/icon-192.png",
+      "src": "/Sole-Interiores/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "/Sole-Interiores/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

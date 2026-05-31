@@ -1,19 +1,19 @@
 const CACHE_NAME = 'sole-crm-v1';
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/css/style.css',
-  '/js/supabase.js',
-  '/js/app.js',
-  '/js/router.js',
-  '/js/ui.js',
-  '/pages/dashboard.js',
-  '/pages/clientes.js',
-  '/pages/proveedores.js',
-  '/pages/proyectos.js',
-  '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png'
+  '/Sole-Interiores/',
+  '/Sole-Interiores/index.html',
+  '/Sole-Interiores/css/style.css',
+  '/Sole-Interiores/js/supabase.js',
+  '/Sole-Interiores/js/app.js',
+  '/Sole-Interiores/js/router.js',
+  '/Sole-Interiores/js/ui.js',
+  '/Sole-Interiores/pages/dashboard.js',
+  '/Sole-Interiores/pages/clientes.js',
+  '/Sole-Interiores/pages/proveedores.js',
+  '/Sole-Interiores/pages/proyectos.js',
+  '/Sole-Interiores/manifest.json',
+  '/Sole-Interiores/icons/icon-192.png',
+  '/Sole-Interiores/icons/icon-512.png'
 ];
 
 self.addEventListener('install', e => {
