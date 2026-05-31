@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#b28e0e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Solé" />
+  <title>Solé CRM</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Sidebar (desktop) -->
+    <aside id="sidebar">
+      <div class="sidebar-logo">
+        <span class="logo-icon">S</span>
+        <span class="logo-text">Solé</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#dashboard" class="nav-item" data-page="dashboard">
+          <span class="nav-icon">⊞</span> Dashboard
+        </a>
+        <a href="#clientes" class="nav-item" data-page="clientes">
+          <span class="nav-icon">👤</span> Clientes
+        </a>
+        <a href="#proveedores" class="nav-item" data-page="proveedores">
+          <span class="nav-icon">🏭</span> Proveedores
+        </a>
+        <a href="#proyectos" class="nav-item" data-page="proyectos">
+          <span class="nav-icon">📁</span> Proyectos
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Contenido principal -->
+    <main id="main-content">
+      <div id="page-container">
+        <!-- Las páginas se renderizan aquí -->
+      </div>
+    </main>
+
+    <!-- Navbar inferior (móvil) -->
+    <nav id="bottom-nav">
+      <a href="#dashboard" class="bottom-nav-item" data-page="dashboard">
+        <span class="nav-icon">⊞</span>
+        <span>Inicio</span>
+      </a>
+      <a href="#clientes" class="bottom-nav-item" data-page="clientes">
+        <span class="nav-icon">👤</span>
+        <span>Clientes</span>
+      </a>
+      <a href="#proveedores" class="bottom-nav-item" data-page="proveedores">
+        <span class="nav-icon">🏭</span>
+        <span>Proveedores</span>
+      </a>
+      <a href="#proyectos" class="bottom-nav-item" data-page="proyectos">
+        <span class="nav-icon">📁</span>
+        <span>Proyectos</span>
+      </a>
+    </nav>
+
+  </div>
+
+  <!-- Modal global -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal-box">
+      <button id="modal-close">✕</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <!-- Toast de notificaciones -->
+  <div id="toast"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/router.js"></script>
+  <script src="pages/dashboard.js"></script>
+  <script src="pages/clientes.js"></script>
+  <script src="pages/proveedores.js"></script>
+  <script src="pages/proyectos.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
